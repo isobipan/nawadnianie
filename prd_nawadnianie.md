@@ -1,6 +1,6 @@
 # PRD: System Automatycznego Nawadniania Doniczek
 
-**Wersja:** 1.0
+**Wersja:** 1.1
 **Data:** 2026-04-05
 **Autor:** Irek
 **Status:** ✅ Gotowy do implementacji
@@ -21,7 +21,7 @@ System automatycznego nawadniania dwóch doniczek oparty na ESP32 z czujnikami w
 - 📊 **Monitoring baterii** - pomiar napięcia przez dzielnik na ADC
 
 **Fazy rozwoju:**
-- 🔧 **v1.0 (MVP)** - ESP32 + czujniki + zawory + LCD + bateria
+- 🔧 **v1.0 (MVP)** - ESP32 + czujniki + pompki + relay + OLED + bateria
 - 🌐 **v2.0** - WiFi + web dashboard + zdalne sterowanie + logi
 
 ---
@@ -170,33 +170,55 @@ int moisturePercent(int raw) {
 
 **Uwaga:** Wyłączać czujniki między pomiarami (przez tranzystor lub pin GPIO) dla oszczędności energii.
 
-### TR-3: Zawory solenoidowe
+### TR-3: Pompki wodne i moduł relay
 
-**Specyfikacja:**
+**Specyfikacja pompek:**
 ```
-Typ: Normalnie zamknięty (NC - Normally Closed)
-Napięcie: 5V DC
-Prąd: ~200-300mA podczas otwarcia
-Sterowanie: Tranzystor NPN (np. BC337) lub MOSFET (np. IRLZ44N)
-Piny: Zawór 1 → GPIO26, Zawór 2 → GPIO27
+Typ: Mini pompka DC brushless
+Napięcie: DC 3-5V
+Prąd: ~100-200mA podczas pracy
+Wyjście: wąż 5mm (pasuje do dołączonego węża PVC)
+Ilość: 2 (z zestawu AliExpress, zapas 2 sztuki)
+```
+
+**Specyfikacja modułu relay:**
+```
+Typ: 4-kanałowy moduł relay 5V (z zestawu AliExpress)
+Napięcie sterowania: 5V (VCC) / sygnał IN: 3.3V-5V
+Sterowanie: aktywne LOW (LOW = relay włączony)
+Piny: Relay 1 → GPIO26, Relay 2 → GPIO27
 ```
 
 **Schemat sterowania:**
 ```
-GPIO (3.3V) → R 1kΩ → Baza BC337 → Kolektor → Zawór → 5V
-                                  → Emiter → GND
-Dioda flyback 1N4007 równolegle do zaworu (ochrona przed EMF)
+ESP32 GPIO26 → IN1 (relay moduł) → NO/COM → Pompka 1 → 5V
+ESP32 GPIO27 → IN2 (relay moduł) → NO/COM → Pompka 2 → 5V
+Relay VCC → 5V
+Relay GND → GND
 ```
 
-### TR-4: Wyświetlacz LCD I2C (faza prototypu)
+**Uwaga:** Relay jest aktywne LOW — `digitalWrite(RELAY_PIN, LOW)` włącza pompkę.
+
+**Zmiana względem v1.0 PRD:**
+- ~~Zawory solenoidowe grawitacyjne~~ → Pompki DC z rezerwuaru
+- ~~Tranzystory BC337 + diody flyback~~ → Moduł relay (w zestawie)
+- Zbiornik wody może być na dowolnej wysokości
+
+### TR-4: Wyświetlacz OLED (wbudowany w płytkę ESP32)
 
 **Specyfikacja:**
 ```
-LCD 16x2 + moduł I2C
-Adres: 0x27 lub 0x3F (sprawdzić I2C Scanner)
-Piny: SDA → GPIO21, SCL → GPIO22
-Napięcie: 5V
+Typ: OLED 0.96" SSD1306 (wbudowany w ideaspark ESP32)
+Rozdzielczość: 128x64 px
+Interfejs: I2C (wbudowany, piny wewnętrzne płytki)
+Biblioteka: Adafruit SSD1306 + Adafruit GFX
+Napięcie: 3.3V (wewnętrzne)
 ```
+
+**Zmiana względem v1.0 PRD:**
+- ~~LCD 16x2 + moduł I2C~~ → OLED 0.96" wbudowany w płytkę ESP32
+- ~~LiquidCrystal_I2C~~ → Adafruit SSD1306
+- Więcej miejsca na ekranie (128x64 px vs 16x2 znaków)
 
 ### TR-5: Zasilanie z akumulatora
 
@@ -300,43 +322,53 @@ void loop() {
 - Zmierz ADC przy nasyconej glebie → `MOISTURE_WET`
 - Zapisz wartości w kodzie
 
-**Krok 1.3: Test zaworów**
+**Krok 1.3: Test pompek przez relay**
 ```cpp
-#define VALVE1_PIN 26
-#define VALVE2_PIN 27
+#define RELAY1_PIN 26
+#define RELAY2_PIN 27
 
 void setup() {
-  pinMode(VALVE1_PIN, OUTPUT);
-  pinMode(VALVE2_PIN, OUTPUT);
+  pinMode(RELAY1_PIN, OUTPUT);
+  pinMode(RELAY2_PIN, OUTPUT);
+  digitalWrite(RELAY1_PIN, HIGH);  // Relay aktywne LOW - wyłącz na start
+  digitalWrite(RELAY2_PIN, HIGH);
 }
 
 void loop() {
-  digitalWrite(VALVE1_PIN, HIGH);  // Otwórz zawór 1
+  digitalWrite(RELAY1_PIN, LOW);   // Włącz pompkę 1 (relay aktywne LOW)
   delay(3000);
-  digitalWrite(VALVE1_PIN, LOW);   // Zamknij zawór 1
+  digitalWrite(RELAY1_PIN, HIGH);  // Wyłącz pompkę 1
   delay(2000);
-  digitalWrite(VALVE2_PIN, HIGH);  // Otwórz zawór 2
+  digitalWrite(RELAY2_PIN, LOW);   // Włącz pompkę 2
   delay(3000);
-  digitalWrite(VALVE2_PIN, LOW);
+  digitalWrite(RELAY2_PIN, HIGH);  // Wyłącz pompkę 2
   delay(5000);
 }
 ```
 
 ### Phase 2: Integracja czujniki + LCD (45 min)
 
-**Krok 2.1: Wyświetlanie wilgotności na LCD**
+**Krok 2.1: Wyświetlanie wilgotności na OLED**
 ```cpp
 #include <Wire.h>
-#include <LiquidCrystal_I2C.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
 
-LiquidCrystal_I2C lcd(0x3F, 16, 2);
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
 void displayStatus(int m1, int m2, int bat) {
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.printf("D1:%d%% D2:%d%%", m1, m2);
-  lcd.setCursor(0, 1);
-  lcd.printf("Bat:%d%%", bat);
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  display.setCursor(0, 0);
+  display.printf("Doniczka 1: %d%%", m1);
+  display.setCursor(0, 16);
+  display.printf("Doniczka 2: %d%%", m2);
+  display.setCursor(0, 32);
+  display.printf("Bateria:    %d%%", bat);
+  display.display();
 }
 ```
 
@@ -344,15 +376,16 @@ void displayStatus(int m1, int m2, int bat) {
 
 **Krok 3.1: Kompletna logika**
 ```cpp
-#define MOISTURE_THRESHOLD_1  35  // % - próg dla doniczki 1
-#define MOISTURE_THRESHOLD_2  35  // % - próg dla doniczki 2
-#define VALVE_OPEN_TIME       20000  // ms - czas otwarcia zaworu
+#define MOISTURE_THRESHOLD_1  35  // % - próg dla doniczki 1 (do kalibracji)
+#define MOISTURE_THRESHOLD_2  35  // % - próg dla doniczki 2 (do kalibracji)
+#define PUMP_RUN_TIME         5000   // ms - czas pracy pompki (zaczynamy od 5s!)
 
-void checkAndWater(int pin, int moisture, int threshold) {
+// Relay aktywne LOW: LOW = pompka włączona, HIGH = wyłączona
+void checkAndWater(int relayPin, int moisture, int threshold) {
   if (moisture < threshold) {
-    digitalWrite(pin, HIGH);
-    delay(VALVE_OPEN_TIME);
-    digitalWrite(pin, LOW);
+    digitalWrite(relayPin, LOW);   // Włącz pompkę
+    delay(PUMP_RUN_TIME);
+    digitalWrite(relayPin, HIGH);  // Wyłącz pompkę
   }
 }
 ```
@@ -468,14 +501,14 @@ void checkAndWater(int pin, int moisture, int threshold) {
 - Używać `RTC_DATA_ATTR` dla zmiennych które mają przetrwać deep sleep
 - Przechowywać stan w pamięci RTC lub EEPROM
 
-### Risk-5: Napięcie 3.3V ESP32 vs zawory 5V
-**Opis:** GPIO ESP32 dają 3.3V - niewystarczające do bezpośredniego sterowania zaworami 5V.
-**Prawdopodobieństwo:** ✅ Zawsze
-**Wpływ:** 🔴 Krytyczny bez tranzystora
+### Risk-5: Relay aktywne LOW — pompka włączona przy resecie ESP32
+**Opis:** Moduł relay jest aktywne LOW. Przy starcie ESP32 piny GPIO mogą być chwilowo LOW, co włączy pompki przed inicjalizacją kodu.
+**Prawdopodobieństwo:** 🟡 Średnie
+**Wpływ:** 🟡 Średni - niezamierzone krótkie uruchomienie pompki
 
 **Mitigacja:**
-- Obowiązkowe użycie tranzystora NPN (BC337) lub MOSFET (IRLZ44N)
-- Dioda flyback 1N4007 równolegle do cewki zaworu
+- W `setup()` natychmiast ustawić piny relay na HIGH (wyłączone)
+- Inicjalizacja relay jako pierwsza operacja przed wszystkim innym
 
 ---
 
@@ -534,9 +567,10 @@ void checkAndWater(int pin, int moisture, int threshold) {
 
 ## ✍️ Changelog
 
-| Wersja | Data       | Autor | Opis zmian                          |
-|--------|------------|-------|-------------------------------------|
-| 1.0    | 2026-04-05 | Irek  | Pierwsza wersja - MVP bez WiFi      |
+| Wersja | Data       | Autor | Opis zmian                                              |
+|--------|------------|-------|---------------------------------------------------------|
+| 1.0    | 2026-04-05 | Irek  | Pierwsza wersja - MVP bez WiFi                         |
+| 1.1    | 2026-04-05 | Irek  | Zmiana: pompki+relay zamiast zaworów, OLED zamiast LCD |
 
 ---
 
@@ -547,19 +581,19 @@ void checkAndWater(int pin, int moisture, int threshold) {
 | Komponent                        | Ilość | Uwagi                              |
 |----------------------------------|-------|------------------------------------|
 | ESP32 DevKit V1                  | 1     | Mikrokontroler główny              |
-| Czujnik wilgotności pojemnościowy| 2     | Capacitive v1.2, nie rezystancyjny |
-| Zawór solenoidowy 5V NC          | 2     | Normalnie zamknięty                |
-| LCD 16x2 + moduł I2C             | 1     | Adres 0x27 lub 0x3F                |
-| Akumulator 18650                 | 2     | Min. 2500mAh każdy                 |
-| Koszyk na 18650 (2S)             | 1     | Szeregowo = 7.4V                   |
-| Przetwornica buck 5V (LM2596)    | 1     | Stabilizacja zasilania             |
-| Tranzystor BC337 lub MOSFET      | 2     | Po jednym na zawór                 |
-| Rezystor 1kΩ                     | 2     | Baza tranzystora                   |
-| Dioda 1N4007                     | 2     | Flyback dla zaworów                |
-| Rezystor 100kΩ                   | 1     | Dzielnik baterii R1                |
-| Rezystor 47kΩ                    | 1     | Dzielnik baterii R2                |
-| Rurki / węże 6mm                 | 2     | Doprowadzenie wody                 |
-| Breadboard + przewody            | 1     | Prototypowanie                     |
+| ESP32 ideaspark z OLED 0.96"     | 1     | Zamówiony ✅                        |
+| Czujnik wilgotności pojemnościowy| 4     | Z zestawu AliExpress ✅             |
+| Moduł relay 4-kanałowy 5V        | 1     | Z zestawu AliExpress ✅             |
+| Mini pompka DC 3-5V              | 4     | Z zestawu AliExpress ✅ (2 używane) |
+| Wąż PVC 4m                       | 1     | Z zestawu AliExpress ✅             |
+| Akumulator 18650 LG              | 1-3   | Do zamówienia (Allegro)            |
+| Koszyk na 1x 18650               | 1     | Do zamówienia                      |
+| Moduł TP4056 USB-C z protekcją   | 1     | Do zamówienia                      |
+| Przetwornica boost MT3608 5V     | 1     | Do zamówienia                      |
+| Rezystor 100kΩ                   | 1     | Do zamówienia (zestaw rezystorów)  |
+| Rezystor 47kΩ                    | 1     | Do zamówienia (zestaw rezystorów)  |
+| Zbiornik na wodę ~1-2L           | 1     | Dowolny pojemnik                   |
+| Breadboard + przewody            | 1     | Do prototypowania                  |
 
 ### B. Roadmapa
 
