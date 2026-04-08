@@ -1,7 +1,7 @@
 # PRD: System Automatycznego Nawadniania Doniczek
 
-**Wersja:** 1.1
-**Data:** 2026-04-05
+**Wersja:** 1.3
+**Data:** 2026-04-08
 **Autor:** Irek
 **Status:** ✅ Gotowy do implementacji
 **Priorytet:** 🟡 Medium
@@ -208,17 +208,26 @@ Relay GND → GND
 
 **Specyfikacja:**
 ```
-Typ: OLED 0.96" SSD1306 (wbudowany w ideaspark ESP32)
-Rozdzielczość: 128x64 px
-Interfejs: I2C (wbudowany, piny wewnętrzne płytki)
-Biblioteka: Adafruit SSD1306 + Adafruit GFX
+Typ: TFT LCD 1.14" ST7789 (wbudowany w ideaspark ESP32 v4.1, USB-C)
+Rozdzielczość: 240x135 px
+Interfejs: SPI (wbudowany, piny wewnętrzne płytki)
+Biblioteka: Adafruit ST7789 + Adafruit GFX ✅ przetestowane
 Napięcie: 3.3V (wewnętrzne)
+
+Piny wewnętrzne:
+  MOSI      → GPIO23
+  SCLK      → GPIO18
+  CS        → GPIO15
+  DC        → GPIO2
+  RST       → GPIO4
+  Backlight → GPIO32 (HIGH = włączony)
 ```
 
-**Zmiana względem v1.0 PRD:**
-- ~~LCD 16x2 + moduł I2C~~ → OLED 0.96" wbudowany w płytkę ESP32
-- ~~LiquidCrystal_I2C~~ → Adafruit SSD1306
-- Więcej miejsca na ekranie (128x64 px vs 16x2 znaków)
+**Zmiana względem v1.1 PRD:**
+- ~~OLED 0.96" SSD1306 (ideaspark v3.0, micro USB)~~ → TFT LCD 1.14" ST7789 (ideaspark v4.1, USB-C)
+- Większy ekran (240x135 px vs 128x64 px)
+- USB-C zamiast micro USB — wygodniejsze programowanie i ładowanie
+- ~~Adafruit SSD1306~~ → Adafruit ST7789 + Adafruit GFX
 
 ### TR-5: Zasilanie z akumulatora
 
@@ -571,6 +580,8 @@ void checkAndWater(int relayPin, int moisture, int threshold) {
 |--------|------------|-------|---------------------------------------------------------|
 | 1.0    | 2026-04-05 | Irek  | Pierwsza wersja - MVP bez WiFi                         |
 | 1.1    | 2026-04-05 | Irek  | Zmiana: pompki+relay zamiast zaworów, OLED zamiast LCD |
+| 1.2    | 2026-04-08 | Irek  | Zmiana: ESP32 ideaspark v4.1 (OLED 1.14", USB-C)       |
+| 1.3    | 2026-04-08 | Irek  | Potwierdzono: ST7789 TFT 240x135, piny, biblioteki ✅   |
 
 ---
 
@@ -580,20 +591,24 @@ void checkAndWater(int relayPin, int moisture, int threshold) {
 
 | Komponent                        | Ilość | Uwagi                              |
 |----------------------------------|-------|------------------------------------|
-| ESP32 DevKit V1                  | 1     | Mikrokontroler główny              |
-| ESP32 ideaspark z OLED 0.96"     | 1     | Zamówiony ✅                        |
+| ESP32 ideaspark OLED 1.14" v4.1  | 1     | USB-C, wybrany ✅                   |
+| ESP32 ideaspark OLED 0.96" v3.0  | 1     | Zapasowy (micro USB)               |
 | Czujnik wilgotności pojemnościowy| 4     | Z zestawu AliExpress ✅             |
 | Moduł relay 4-kanałowy 5V        | 1     | Z zestawu AliExpress ✅             |
 | Mini pompka DC 3-5V              | 4     | Z zestawu AliExpress ✅ (2 używane) |
 | Wąż PVC 4m                       | 1     | Z zestawu AliExpress ✅             |
-| Akumulator 18650 LG              | 1-3   | Do zamówienia (Allegro)            |
-| Koszyk na 1x 18650               | 1     | Do zamówienia                      |
-| Moduł TP4056 USB-C z protekcją   | 1     | Do zamówienia                      |
-| Przetwornica boost MT3608 5V     | 1     | Do zamówienia                      |
-| Rezystor 100kΩ                   | 1     | Do zamówienia (zestaw rezystorów)  |
-| Rezystor 47kΩ                    | 1     | Do zamówienia (zestaw rezystorów)  |
+| Akumulator 18650 LG              | 1     | Mam ✅                              |
+| Koszyk na 1x 18650               | 1     | Mam ✅                              |
+| Moduł TP4056 USB-C z protekcją   | 1     | Mam ✅                              |
+| Przetwornica boost MT3608 5V     | 1     | Mam ✅                              |
+| Rezystor 100kΩ                   | 1     | Mam ✅                              |
+| Rezystor 47kΩ                    | 1     | Mam ✅                              |
+| Breadboard + przewody            | 1     | Mam ✅                              |
+| Czujnik wilgotności pojemnościowy| 4     | Oczekiwanie (AliExpress)           |
+| Moduł relay 4-kanałowy 5V        | 1     | Oczekiwanie (AliExpress)           |
+| Mini pompka DC 3-5V              | 4     | Oczekiwanie (AliExpress)           |
+| Wąż PVC 4m                       | 1     | Oczekiwanie (AliExpress)           |
 | Zbiornik na wodę ~1-2L           | 1     | Dowolny pojemnik                   |
-| Breadboard + przewody            | 1     | Do prototypowania                  |
 
 ### B. Roadmapa
 
