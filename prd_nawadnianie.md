@@ -1,7 +1,7 @@
 # PRD: System Automatycznego Nawadniania Doniczek
 
-**Wersja:** 1.3
-**Data:** 2026-04-08
+**Wersja:** 1.4
+**Data:** 2026-04-11
 **Autor:** Irek
 **Status:** ✅ Gotowy do implementacji
 **Priorytet:** 🟡 Medium
@@ -233,32 +233,36 @@ Piny wewnętrzne:
 
 **Specyfikacja:**
 ```
-Akumulator: 2x 18650 Li-Ion (szeregowo = 7.4V)
-Pojemność: 2x 3000mAh = 6000mAh
-Przetwornica: Buck DC-DC do 5V (np. LM2596 lub MP1584)
-Ładowanie: Moduł TP4056 (osobno dla każdej celi) lub BMS 2S
+Akumulator: 1x 18650 Li-Ion (1S = 3.7V nominalnie)
+Pojemność: ~3000mAh
+Ładowanie: Moduł TP4056 USB-C z protekcją
+Przetwornica: Boost MT3608 skalibrowany na 5V → VIN ESP32
 
 Monitoring napięcia:
-  Bateria → R1 (100kΩ) → GPIO32 (ADC) → R2 (47kΩ) → GND
-  Zakres pomiaru: 0-8.4V → 0-3.3V na ADC
+  Bateria → R1 (100kΩ) → GPIO33 (ADC) → R2 (47kΩ) → GND
+  Zakres pomiaru: 3.4V–4.2V → ~1.09V–1.35V na ADC
 ```
 
-**Obliczenie dzielnika:**
+**Obliczenie dzielnika (przetestowane, z korektą ADC):**
 ```cpp
 #define R1 100000.0  // 100kΩ
-#define R2 47000.0   // 47kΩ
+#define R2  47000.0  // 47kΩ
 
 float readBatteryVoltage() {
-  int raw = analogRead(32);
+  int raw = analogRead(33);
   float adcVoltage = (raw / 4095.0) * 3.3;
-  return adcVoltage * ((R1 + R2) / R2);
+  return adcVoltage * ((R1 + R2) / R2) * 1.096;  // korekcja nieliniowości ADC ESP32
 }
 
 int batteryPercent(float voltage) {
-  // Li-Ion 2S: 8.4V = 100%, 6.4V = 0%
-  return constrain((int)((voltage - 6.4) / (8.4 - 6.4) * 100), 0, 100);
+  // Li-Ion 1S: 4.2V = 100%, 3.4V = 0%
+  return constrain((int)((voltage - 3.4) / (4.2 - 3.4) * 100), 0, 100);
 }
 ```
+
+**Zmiana względem v1.0 PRD:**
+- ~~2x 18650 szeregowo (2S, 7.4V) + przetwornica buck~~ → 1x 18650 (1S, 3.7V) + boost MT3608
+- ~~GPIO32~~ → GPIO33 dla ADC baterii (GPIO32 zajęty przez backlight TFT)
 
 ### TR-6: Deep Sleep i harmonogram pomiarów
 
@@ -288,15 +292,39 @@ Czas aktywny: ~12s na cykl
 ### TR-7: Pinout ESP32
 
 ```
-GPIO21  - SDA (LCD I2C)
-GPIO22  - SCL (LCD I2C)
-GPIO26  - Zawór 1 (przez tranzystor)
-GPIO27  - Zawór 2 (przez tranzystor)
-GPIO32  - ADC bateria (ADC1_CH4)
+GPIO18  - SCLK (TFT SPI, wewnętrzny)
+GPIO23  - MOSI (TFT SPI, wewnętrzny)
+GPIO15  - CS   (TFT SPI, wewnętrzny)
+GPIO2   - DC   (TFT SPI, wewnętrzny)
+GPIO4   - RST  (TFT SPI, wewnętrzny)
+GPIO32  - Backlight TFT (HIGH=włączony)
+GPIO26  - Relay 1 (aktywne LOW → pompka 1)
+GPIO27  - Relay 2 (aktywne LOW → pompka 2)
+GPIO33  - ADC bateria (ADC1_CH5, dzielnik R1=100kΩ/R2=47kΩ) ✅ przetestowane
 GPIO34  - ADC czujnik wilgotności 1 (ADC1_CH6, input only)
 GPIO35  - ADC czujnik wilgotności 2 (ADC1_CH7, input only)
-GPIO25  - Zasilanie czujników (włącz przed pomiarem, wyłącz po)
+GPIO25  - Zasilanie czujników (HIGH=włącz przed pomiarem, LOW=wyłącz po)
 ```
+
+---
+
+## 📊 Stan implementacji (2026-04-11)
+
+| Komponent             | Status | Uwagi                                              |
+|-----------------------|--------|----------------------------------------------------|
+| LED blink test        | ✅     | GPIO2, działa                                      |
+| Zasilanie 18650+MT3608| ✅     | MT3608 skalibrowany na 5V (~15-20 obrotów)         |
+| Pomiar baterii        | ✅     | GPIO33, dzielnik R1/R2, korekcja ×1.096, ±0.05V   |
+| Wyświetlacz TFT       | ✅     | Napięcie baterii na pierwszej linii                |
+| Telegram alert        | 🔄     | Kod gotowy, test w toku (WiFi 2.4G-ciastka)        |
+| Czujniki wilgotności  | ⏳     | Oczekiwanie na komponenty z AliExpress             |
+| Relay + pompki        | ⏳     | Oczekiwanie na komponenty z AliExpress             |
+| Deep sleep            | ⏳     | Do implementacji po testach czujników              |
+
+**Szkice testowe** (`C:\Users\isobi\Documents\Arduino\`):
+- `nawadnianie_test/` — LED blink ✅
+- `battery_test/` — pomiar napięcia + TFT + Telegram alert 🔄
+- `telegram_test/` — test samego Telegrama ✅
 
 ---
 
@@ -582,6 +610,7 @@ void checkAndWater(int relayPin, int moisture, int threshold) {
 | 1.1    | 2026-04-05 | Irek  | Zmiana: pompki+relay zamiast zaworów, OLED zamiast LCD |
 | 1.2    | 2026-04-08 | Irek  | Zmiana: ESP32 ideaspark v4.1 (OLED 1.14", USB-C)       |
 | 1.3    | 2026-04-08 | Irek  | Potwierdzono: ST7789 TFT 240x135, piny, biblioteki ✅   |
+| 1.4    | 2026-04-11 | Irek  | Poprawki: 1S bateria, GPIO33 ADC, pinout, Telegram alert wdrożony ✅ |
 
 ---
 
