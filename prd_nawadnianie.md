@@ -412,20 +412,36 @@ void displayStatus(int m1, int m2, int bat) {
 ### Phase 3: Logika podlewania + deep sleep (45 min)
 
 **Krok 3.1: Kompletna logika**
+
+Logika sterowania pompką z histerezą (zapobiega szybkiemu włączaniu/wyłączaniu przy progu):
+
 ```cpp
-#define MOISTURE_THRESHOLD_1  35  // % - próg dla doniczki 1 (do kalibracji)
-#define MOISTURE_THRESHOLD_2  35  // % - próg dla doniczki 2 (do kalibracji)
+#define MOISTURE_THRESHOLD_LOW   35  // % - włącz pompkę gdy poniżej (do kalibracji)
+#define MOISTURE_THRESHOLD_HIGH  50  // % - wyłącz pompkę gdy powyżej (do kalibracji)
 #define PUMP_RUN_TIME         5000   // ms - czas pracy pompki (zaczynamy od 5s!)
 
+// Stan pompek (przeżywa między cyklami przez RTC_DATA_ATTR)
+RTC_DATA_ATTR bool pump1Running = false;
+RTC_DATA_ATTR bool pump2Running = false;
+
 // Relay aktywne LOW: LOW = pompka włączona, HIGH = wyłączona
-void checkAndWater(int relayPin, int moisture, int threshold) {
-  if (moisture < threshold) {
+// Histereza: włącz gdy < THRESHOLD_LOW, wyłącz gdy > THRESHOLD_HIGH
+void checkAndWater(int relayPin, int moisture, bool &pumpRunning) {
+  if (!pumpRunning && moisture < MOISTURE_THRESHOLD_LOW) {
+    pumpRunning = true;
     digitalWrite(relayPin, LOW);   // Włącz pompkę
     delay(PUMP_RUN_TIME);
-    digitalWrite(relayPin, HIGH);  // Wyłącz pompkę
+    digitalWrite(relayPin, HIGH);  // Wyłącz po czasie
+  } else if (pumpRunning && moisture > MOISTURE_THRESHOLD_HIGH) {
+    pumpRunning = false;           // Reset flagi — gleba nawodniona
   }
 }
 ```
+
+**Działanie histerezy:**
+- Wilgotność < 35% → pompka włącza się na `PUMP_RUN_TIME`
+- Wilgotność > 50% → flaga reset, pompka może włączyć się ponownie
+- Między 35%–50% → brak zmiany stanu
 
 ### Phase 4: Testy i kalibracja (60 min)
 
